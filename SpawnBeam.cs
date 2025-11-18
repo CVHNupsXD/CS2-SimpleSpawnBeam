@@ -27,8 +27,6 @@ public class SpawnBeam : BasePlugin
     {
         Console.WriteLine($"{ModuleName} loaded successfully!");
 
-        RegisterEventHandler<EventGrenadeThrown>(OnGrenadeThrown);
-
         RegisterEventHandler<EventRoundPoststart>(OnRoundStarted);
 
         }
@@ -39,19 +37,22 @@ public class SpawnBeam : BasePlugin
         float squareRadius = 60f;
         float squareWidth = 0.5f;
 
-        //de_ancient
-        double[] x = { -584.000000, -392.000000, -328.000000, -456.000000, -520.000000, -192.000000, -256.000000, -352.000000, -448.000000, -512.000000 };
-        double[] y = { -2288.000000, -2224.000000, -2288.000000, -2288.000000, -2224.000000, 1696.000000, 1728.000000, 1728.000000, 1728.000000, 1696.000000 };
-        double[] z = { -140.797485, -140.255737, -140.255737, -140.255737, -140.255737, 44.000000, 44.000000, 44.000000, 44.000000, 44.000000 };
-
-        for (int i = 0; i < x.Length; i++)
+        var spawnConfigs = new[]
         {
-            Vector centerPoint = new Vector((float)x[i], (float)y[i], (float)z[i]);
+            ("info_player_terrorist", Color.YellowGreen),
+            ("info_player_counterterrorist", Color.DarkBlue)
+        };
 
-            Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, centerPoint.Z);
-            Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, centerPoint.Z);
-
-            BeamHelper.SquareBeam(startPos, endPos, squareRadius, squareWidth, Color.Blue);
+        foreach (var (designerName, color) in spawnConfigs)
+        {
+            var spawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>(designerName);
+            foreach (var spawn in spawns)
+            {
+                Vector centerPoint = spawn.AbsOrigin;
+                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, centerPoint.Z);
+                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, centerPoint.Z);
+                BeamHelper.SquareBeam(startPos, endPos, squareRadius, squareWidth, color);
+            }
         }
 
         return HookResult.Continue;
