@@ -122,30 +122,20 @@ public class SpawnBeam : BasePlugin
     }
 
 
-    // TODO, idk what im i doing.
-    private float GetGroundLevel(Vector position)
+    // now it should works, thanks: https://github.com/schwarper/CS2TraceRay/blob/main/CS2TraceRay/Class/PlayerExtensions.cs#L85
+    private float GetGroundLevel(Vector spawnOrigin)
     {
-        Vector startPos = new Vector(position.X, position.Y, position.Z);
-        Vector endPos = new Vector(position.X, position.Y, position.Z);
+        if (spawnOrigin == null)
+            return 0.0f;
 
-        CTraceFilter filter = new CTraceFilter(0, 0)
-        {
-            m_nObjectSetMask = 0xf,
-            m_nCollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE,
-            m_nBits = 11,
-            m_bIterateEntities = false
-        };
+        CGameTrace trace = TraceRay.TraceShape(spawnOrigin, new QAngle(90, 0, 0), TraceMask.MaskAll, Contents.Sky, 0);
 
-        Ray ray = new Ray(new Vector3(0, 0, 0), new Vector3(0, 0, 0));
-
-        CGameTrace trace = TraceRay.TraceHull(startPos, endPos, filter, ray);
-
-        if (trace.Fraction < 1.0f && trace.EndPos != null)
+        if (trace.EndPos != null)
         {
             return trace.EndPos.Z;
         }
 
-        return position.Z;
+        return spawnOrigin.Z;
     }
 
     // thanks https://github.com/exkludera/cs2-noclip/blob/main/noclip.cs
@@ -286,8 +276,8 @@ public class SpawnBeam : BasePlugin
 
                 float groundZ = GetGroundLevel(centerPoint);
 
-                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, groundZ + 8f);
-                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, groundZ + 8f);
+                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, groundZ + 15f);
+                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, groundZ + 15f);
                 BeamHelper.SquareBeam(startPos, endPos, squareRadius, squareWidth, color);
             }
         }
