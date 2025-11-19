@@ -5,9 +5,17 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Utils;
 using CounterStrikeSharp.API.Modules.Commands;
-using Microsoft.Extensions.Logging;
 using System.Drawing;
 using CBeamHelper;
+using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Modules.Entities.Constants;
+
+using CS2TraceRay.Class;
+using CS2TraceRay.Enum;
+using CS2TraceRay.Struct;
+using System.Numerics;
+
+using Vector = CounterStrikeSharp.API.Modules.Utils.Vector;
 
 namespace SpawnBeam;
 
@@ -19,38 +27,267 @@ public class SpawnBeam : BasePlugin
     public override string ModuleAuthor => "CVHNups";
     public override string ModuleVersion => "1.0.0";
 
-    public static void DebugLog(string message)
-    {
-        Server.PrintToChatAll($"{ChatColors.Red}[Debug]{ChatColors.Default} {message}");
-    }
+    private List<SpawnPoint> tSpawns = new List<SpawnPoint>();
+    private List<SpawnPoint> ctSpawns = new List<SpawnPoint>();
+    private Dictionary<int, bool> isPlayerTP = new Dictionary<int, bool>();
+    private Dictionary<int, bool> isInSquare = new Dictionary<int, bool>();
+
+    private CounterStrikeSharp.API.Modules.Timers.Timer? tpTimer;
+
+    float squareRadius = 60f;
+    float squareWidth = 0.5f;
+
+    // TODO
+    bool isBeamDisable = false;
+
     public override void Load(bool hotReload)
     {
         Console.WriteLine($"{ModuleName} loaded successfully!");
 
         RegisterEventHandler<EventRoundPoststart>(OnRoundStarted);
+        RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
+        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+
+        AddCommand("css_tp", "Toggle auto teleport to spawn", Command_Tp);
+        AddCommand("css_random", "Teleport to random spawn point", Command_TpRandom);
+
+        AddCommandListener("noclip", OnNoclipCommand);
+
+        tpTimer = AddTimer(0.5f, CheckPlayerPositions, TimerFlags.REPEAT);
+    }
+
+    public override void Unload(bool hotReload)
+    {
+        tpTimer?.Kill();
+    }
+
+    private void CheckPlayerPositions()
+    {
+        var players = Utilities.GetPlayers().Where(p =>
+            p.IsValid &&
+            p.PlayerPawn.Value != null &&
+            isPlayerTP.ContainsKey((int)p.Index) &&
+            isPlayerTP[(int)p.Index]);
+
+        foreach (var player in players)
+        {
+            bool isNoClip = player.PlayerPawn.Value.MoveType == MoveType_t.MOVETYPE_NOCLIP;
+            Server.PrintToConsole($"Player {player.PlayerName} - Noclip: {isNoClip}, MoveType: {player.PlayerPawn.Value.MoveType}");
+            if (isNoClip)
+            {
+                continue;
+            }
+
+            int index = (int)player.Index;
+            var playerPos = player.PlayerPawn.Value.AbsOrigin;
+            var nearbySpawn = FindNearbySpawn(playerPos);
+
+            bool currentlyInSquare = nearbySpawn != null;
+            bool wasInSquare = isInSquare.ContainsKey(index) && isInSquare[index];
+
+            if (currentlyInSquare && !wasInSquare)
+            {
+                Vector tpPos = new Vector(nearbySpawn.AbsOrigin.X, nearbySpawn.AbsOrigin.Y, playerPos.Z);
+                if (player.PlayerPawn.Value.AbsOrigin.X != tpPos.X && player.PlayerPawn.Value.AbsOrigin.Y != tpPos.Y)
+                {
+                    player.PlayerPawn.Value.Teleport(tpPos, null, new Vector(0, 0, 0));
+                    player.PrintToChat($" Teleported to spawn point!");
+                }
+                isInSquare[index] = currentlyInSquare;
+            }
+            else if (!currentlyInSquare && wasInSquare)
+            {
+                isInSquare.Remove(index);
+            }
+        }
+    }
+
+    private SpawnPoint? FindNearbySpawn(Vector playerPos)
+    {
+        foreach (var spawn in tSpawns.Concat(ctSpawns))
+        {
+            if (IsInsideSquare(playerPos, spawn.AbsOrigin, squareRadius))
+                return spawn;
+        }
+        return null;
+    }
+
+    private bool IsInsideSquare(Vector point, Vector center, float radius)
+    {
+        float halfRadius = radius / 2;
+        return point.X >= center.X - halfRadius &&
+               point.X <= center.X + halfRadius &&
+               point.Y >= center.Y - halfRadius &&
+               point.Y <= center.Y + halfRadius;
+    }
+
+
+    // TODO, idk what im i doing.
+    private float GetGroundLevel(Vector position)
+    {
+        Vector startPos = new Vector(position.X, position.Y, position.Z);
+        Vector endPos = new Vector(position.X, position.Y, position.Z);
+
+        CTraceFilter filter = new CTraceFilter(0, 0)
+        {
+            m_nObjectSetMask = 0xf,
+            m_nCollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE,
+            m_nBits = 11,
+            m_bIterateEntities = false
+        };
+
+        Ray ray = new Ray(new Vector3(0, 0, 0), new Vector3(0, 0, 0));
+
+        CGameTrace trace = TraceRay.TraceHull(startPos, endPos, filter, ray);
+
+        if (trace.Fraction < 1.0f && trace.EndPos != null)
+        {
+            return trace.EndPos.Z;
+        }
+
+        return position.Z;
+    }
+
+    // thanks https://github.com/exkludera/cs2-noclip/blob/main/noclip.cs
+    private HookResult OnNoclipCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (player == null || !player.IsValid || !player.PawnIsAlive)
+            return HookResult.Continue;
+
+        if (player.Team == CsTeam.Spectator || player.Team == CsTeam.None)
+            return HookResult.Continue;
+
+        int index = (int)player.Index;
+
+        if (player.PlayerPawn.Value.MoveType == MoveType_t.MOVETYPE_NOCLIP)
+        {
+            player.PlayerPawn.Value.MoveType = MoveType_t.MOVETYPE_WALK;
+            Schema.SetSchemaValue(player.PlayerPawn.Value.Handle, "CBaseEntity", "m_nActualMoveType", 2);
+            Utilities.SetStateChanged(player.PlayerPawn.Value, "CBaseEntity", "m_MoveType");
+
+            if (isInSquare.ContainsKey(index))
+            {
+                isInSquare.Remove(index);
+            }
+        }
+        else
+        {
+            player.PlayerPawn.Value.MoveType = MoveType_t.MOVETYPE_NOCLIP;
+            Schema.SetSchemaValue(player.PlayerPawn.Value.Handle, "CBaseEntity", "m_nActualMoveType", 8);
+            Utilities.SetStateChanged(player.PlayerPawn.Value, "CBaseEntity", "m_MoveType");
+
+            if (isInSquare.ContainsKey(index))
+            {
+                isInSquare.Remove(index);
+            }
+        }
+
+        return HookResult.Handled;
+    }
+
+    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
+    private void Command_Tp(CCSPlayerController? player, CommandInfo info)
+    {
+        if (player == null || !player.IsValid)
+            return;
+
+        int index = (int)player.Index;
+
+        if (isPlayerTP.ContainsKey(index))
+        {
+            isPlayerTP[index] = !isPlayerTP[index];
+        }
+        else
+        {
+            isPlayerTP[index] = true;
+        }
+
+        string status = isPlayerTP[index] ? "enabled" : "disabled";
+        info.ReplyToCommand($"Auto teleport {status}!");
+    }
+
+    [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
+    private void Command_TpRandom(CCSPlayerController? player, CommandInfo info)
+    {
+        if (player == null || !player.IsValid || player.PlayerPawn.Value == null)
+            return;
+
+        List<SpawnPoint> spawns;
+        string teamName;
+
+        if (player.Team == CsTeam.Terrorist)
+        {
+            spawns = tSpawns;
+            teamName = "T";
+        }
+        else if (player.Team == CsTeam.CounterTerrorist)
+        {
+            spawns = ctSpawns;
+            teamName = "CT";
+        }
+        else
+        {
+            info.ReplyToCommand("You must be on a team to use this command!");
+            return;
+        }
+
+        if (spawns.Count == 0)
+        {
+            info.ReplyToCommand("No spawn points found for your team!");
+            return;
+        }
+
+        var randomSpawn = spawns[Random.Shared.Next(spawns.Count)];
+        player.PlayerPawn.Value.Teleport(randomSpawn.AbsOrigin, randomSpawn.CBodyComponent?.SceneNode?.AbsRotation!, new Vector(0, 0, 0));
+        info.ReplyToCommand($"Teleported to random {teamName} spawn point!");
+    }
+
+    [GameEventHandler]
+    private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+        if (player != null && player.IsValid)
+        {
+            int index = (int)player.Index;
+
+            isPlayerTP.Remove(index);
+            isInSquare.Remove(index);
 
         }
+        return HookResult.Continue;
+    }
+
+    [GameEventHandler]
+    private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+        player.ExecuteClientCommandFromServer("buddha");
+        player.ExecuteClientCommandFromServer("buddha_ignore_bots 1");
+        return HookResult.Continue;
+    }
 
     [GameEventHandler]
     private HookResult OnRoundStarted(EventRoundPoststart @event, GameEventInfo info)
     {
-        float squareRadius = 60f;
-        float squareWidth = 0.5f;
+        tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist").ToList();
+        ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist").ToList();
 
         var spawnConfigs = new[]
         {
-            ("info_player_terrorist", Color.YellowGreen),
-            ("info_player_counterterrorist", Color.DarkBlue)
-        };
+        (tSpawns, Color.Yellow),
+        (ctSpawns, Color.Cyan)
+    };
 
-        foreach (var (designerName, color) in spawnConfigs)
+        foreach (var (spawns, color) in spawnConfigs)
         {
-            var spawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>(designerName);
             foreach (var spawn in spawns)
             {
                 Vector centerPoint = spawn.AbsOrigin;
-                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, centerPoint.Z);
-                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, centerPoint.Z);
+
+                float groundZ = GetGroundLevel(centerPoint);
+
+                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, groundZ + 8f);
+                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, groundZ + 8f);
                 BeamHelper.SquareBeam(startPos, endPos, squareRadius, squareWidth, color);
             }
         }
