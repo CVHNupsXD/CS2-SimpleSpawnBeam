@@ -1,3 +1,4 @@
+using System.Drawing;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
@@ -5,17 +6,15 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Modules.Memory;
 using CounterStrikeSharp.API.Modules.Utils;
 using CounterStrikeSharp.API.Modules.Commands;
-using System.Drawing;
-using CBeamHelper;
 using CounterStrikeSharp.API.Modules.Timers;
-using CounterStrikeSharp.API.Modules.Entities.Constants;
 
 using CS2TraceRay.Class;
 using CS2TraceRay.Enum;
 using CS2TraceRay.Struct;
-using System.Numerics;
+using SpawnBeam.Extensions;
 
 using Vector = CounterStrikeSharp.API.Modules.Utils.Vector;
+
 
 namespace SpawnBeam;
 
@@ -23,9 +22,9 @@ namespace SpawnBeam;
 public class SpawnBeam : BasePlugin
 {
     public override string ModuleName => "SpawnBeam";
-    public override string ModuleDescription => "";
+    public override string ModuleDescription => "A plugin that displays visual square outlines around spawn points for both teams.";
     public override string ModuleAuthor => "CVHNups";
-    public override string ModuleVersion => "1.0.0";
+    public override string ModuleVersion => "1.0.3";
 
     private List<SpawnPoint> tSpawns = new List<SpawnPoint>();
     private List<SpawnPoint> ctSpawns = new List<SpawnPoint>();
@@ -72,7 +71,6 @@ public class SpawnBeam : BasePlugin
         foreach (var player in players)
         {
             bool isNoClip = player.PlayerPawn.Value.MoveType == MoveType_t.MOVETYPE_NOCLIP;
-            Server.PrintToConsole($"Player {player.PlayerName} - Noclip: {isNoClip}, MoveType: {player.PlayerPawn.Value.MoveType}");
             if (isNoClip)
             {
                 continue;
@@ -91,7 +89,7 @@ public class SpawnBeam : BasePlugin
                 if (player.PlayerPawn.Value.AbsOrigin.X != tpPos.X && player.PlayerPawn.Value.AbsOrigin.Y != tpPos.Y)
                 {
                     player.PlayerPawn.Value.Teleport(tpPos, null, new Vector(0, 0, 0));
-                    player.PrintToChat($" Teleported to spawn point!");
+                    player.PrintToChat($" [Spawn{ChatColors.Lime}Beam{ChatColors.Default}] Teleported to spawn point!");
                 }
                 isInSquare[index] = currentlyInSquare;
             }
@@ -192,8 +190,8 @@ public class SpawnBeam : BasePlugin
             isPlayerTP[index] = true;
         }
 
-        string status = isPlayerTP[index] ? "enabled" : "disabled";
-        info.ReplyToCommand($"Auto teleport {status}!");
+        string status = isPlayerTP[index] ? $"{ChatColors.Lime}ON" : $"{ChatColors.Orange}OFF";
+        info.ReplyToCommand($"[Spawn{ChatColors.Lime}Beam{ChatColors.Default}] Auto teleport: {status}");
     }
 
     [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
@@ -208,28 +206,28 @@ public class SpawnBeam : BasePlugin
         if (player.Team == CsTeam.Terrorist)
         {
             spawns = tSpawns;
-            teamName = "T";
+            teamName = $"{ChatColors.Yellow}Terrorist{ChatColors.Default}";
         }
         else if (player.Team == CsTeam.CounterTerrorist)
         {
             spawns = ctSpawns;
-            teamName = "CT";
+            teamName = $"{ChatColors.Blue}Counter Terrorist{ChatColors.Default}";
         }
         else
         {
-            info.ReplyToCommand("You must be on a team to use this command!");
+            info.ReplyToCommand($"[Spawn{ChatColors.Lime}Beam{ChatColors.Default}] You must be on a team to use this command!");
             return;
         }
 
         if (spawns.Count == 0)
         {
-            info.ReplyToCommand("No spawn points found for your team!");
+            info.ReplyToCommand($"[Spawn{ChatColors.Lime}Beam{ChatColors.Default}] No spawn points found for your team!");
             return;
         }
 
         var randomSpawn = spawns[Random.Shared.Next(spawns.Count)];
         player.PlayerPawn.Value.Teleport(randomSpawn.AbsOrigin, randomSpawn.CBodyComponent?.SceneNode?.AbsRotation!, new Vector(0, 0, 0));
-        info.ReplyToCommand($"Teleported to random {teamName} spawn point!");
+        info.ReplyToCommand($"[Spawn{ChatColors.Lime}Beam{ChatColors.Default}] Teleported to random {teamName} spawn point!");
     }
 
     [GameEventHandler]
@@ -276,8 +274,8 @@ public class SpawnBeam : BasePlugin
 
                 float groundZ = GetGroundLevel(centerPoint);
 
-                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, groundZ + 15f);
-                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, groundZ + 15f);
+                Vector startPos = new Vector(centerPoint.X + squareRadius / 2, centerPoint.Y - squareRadius / 2, groundZ + 20f);
+                Vector endPos = new Vector(centerPoint.X - squareRadius / 2, centerPoint.Y + squareRadius / 2, groundZ + 20f);
                 BeamHelper.SquareBeam(startPos, endPos, squareRadius, squareWidth, color);
             }
         }
