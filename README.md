@@ -14,10 +14,9 @@ A Counter-Strike 2 plugin that displays visual square outlines around spawn poin
 - CounterStrikeSharp
 
 ## TODO
-
-- [ ] Add command to teleport player to random spawn position
 - [ ] Additional features TBD
 
 ## Credits
 
 Built with [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp)
+[CS2TraceRay](https://github.com/schwarper/CS2TraceRay)
