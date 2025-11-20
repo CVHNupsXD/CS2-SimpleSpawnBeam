@@ -11,7 +11,8 @@ A Counter-Strike 2 plugin that displays visual square outlines around spawn poin
 
 ## Requirements
 
-- CounterStrikeSharp
+- [CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp)
+- [CS2TraceRay](https://github.com/schwarper/CS2TraceRay)
 
 ## TODO
 - [ ] Additional features TBD
